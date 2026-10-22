@@ -1,0 +1,226 @@
+#!/usr/bin/python3 -I
+"""Read live power from a TP-Link Tapo energy-monitoring plug (P110/P115).
+
+Talks the plug's local KLAP protocol directly -- no cloud round trip, and no
+dependency beyond python3-cryptography. Prints one JSON object on stdout:
+
+    {"ok": true, "watts": 412.3, "today_wh": 3105, "month_wh": 74210, ...}
+    {"ok": false, "error": "..."}
+
+The KLAP session is cached in $XDG_RUNTIME_DIR, so a widget polling every few
+seconds does not re-authenticate on every poll (the plug rate-limits that).
+
+Credentials are your Tapo *account* email and password, stored one per line in
+~/.config/tapo-power/credentials (mode 0600). Create it with:  tapo-power --setup
+
+Newer Tapo firmware refuses all local logins (HTTP 403 on handshake1) until
+"Third-Party Compatibility" is switched on in the Tapo app.
+"""
+import argparse
+import base64
+import getpass
+import hashlib
+import json
+import os
+import secrets
+import sys
+import time
+import urllib.error
+import urllib.request
+
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+CRED_FILE = os.path.expanduser("~/.config/tapo-power/credentials")
+TIMEOUT = 5
+
+
+def sha256(b):
+    return hashlib.sha256(b).digest()
+
+
+def sha1(b):
+    return hashlib.sha1(b).digest()
+
+
+class TapoError(Exception):
+    pass
+
+
+class SessionExpired(TapoError):
+    pass
+
+
+def post(url, data, cookie=None):
+    headers = {"Content-Type": "application/octet-stream"}
+    if cookie:
+        headers["Cookie"] = cookie
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            return r.status, r.read(), r.headers.get("Set-Cookie", "")
+    except urllib.error.HTTPError as e:
+        return e.code, b"", ""
+
+
+class Klap:
+    """One authenticated KLAP (v2) session with a Tapo device."""
+
+    def __init__(self, host, auth_hash, local_seed, remote_seed, cookie, seq=None):
+        self.host = host
+        self.cookie = cookie
+        self.local_seed, self.remote_seed = local_seed, remote_seed
+        mat = local_seed + remote_seed + auth_hash
+        self.key = sha256(b"lsk" + mat)[:16]
+        full_iv = sha256(b"iv" + mat)
+        self.iv = full_iv[:12]
+        self.seq = int.from_bytes(full_iv[-4:], "big", signed=True) if seq is None else seq
+        self.sig = sha256(b"ldk" + mat)[:28]
+
+    @classmethod
+    def handshake(cls, host, auth_hash):
+        local_seed = secrets.token_bytes(16)
+        status, body, set_cookie = post(f"http://{host}/app/handshake1", local_seed)
+        if status == 403:
+            raise TapoError("plug refused local login (403) - enable Third-Party "
+                            "Compatibility in the Tapo app (Me > Tapo Lab)")
+        if status != 200 or len(body) < 48:
+            raise TapoError(f"handshake1 failed: HTTP {status}")
+        remote_seed, server_hash = body[:16], body[16:48]
+        if server_hash != sha256(local_seed + remote_seed + auth_hash):
+            raise TapoError("wrong Tapo email or password")
+        cookie = set_cookie.split(";")[0]
+        status, _, _ = post(f"http://{host}/app/handshake2",
+                            sha256(remote_seed + local_seed + auth_hash), cookie)
+        if status != 200:
+            raise TapoError(f"handshake2 failed: HTTP {status}")
+        return cls(host, auth_hash, local_seed, remote_seed, cookie)
+
+    def _iv_seq(self):
+        return self.iv + self.seq.to_bytes(4, "big", signed=True)
+
+    def request(self, method, params=None):
+        self.seq += 1
+        msg = json.dumps({"method": method, "params": params}).encode()
+        padder = padding.PKCS7(128).padder()
+        enc = Cipher(algorithms.AES(self.key), modes.CBC(self._iv_seq())).encryptor()
+        ct = enc.update(padder.update(msg) + padder.finalize()) + enc.finalize()
+        payload = sha256(self.sig + self.seq.to_bytes(4, "big", signed=True) + ct) + ct
+        status, body, _ = post(f"http://{self.host}/app/request?seq={self.seq}",
+                               payload, self.cookie)
+        if status in (401, 403):
+            raise SessionExpired(f"HTTP {status}")
+        if status != 200:
+            raise TapoError(f"request {method} failed: HTTP {status}")
+        dec = Cipher(algorithms.AES(self.key), modes.CBC(self._iv_seq())).decryptor()
+        unpadder = padding.PKCS7(128).unpadder()
+        plain = unpadder.update(dec.update(body[32:]) + dec.finalize()) + unpadder.finalize()
+        resp = json.loads(plain)
+        code = resp.get("error_code", 0)
+        if code in (-1012, 9999):  # session timed out / invalid on the device side
+            raise SessionExpired(f"error_code {code}")
+        if code != 0:
+            raise TapoError(f"{method} returned error_code {code}")
+        return resp.get("result", {})
+
+    def to_cache(self):
+        return {"local_seed": self.local_seed.hex(), "remote_seed": self.remote_seed.hex(),
+                "cookie": self.cookie, "seq": self.seq, "created": time.time()}
+
+
+def cache_path(host):
+    run = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return os.path.join(run, f"tapo-power-{host}.json")
+
+
+def load_credentials():
+    try:
+        with open(CRED_FILE) as f:
+            lines = [l.strip() for l in f.read().splitlines()]
+    except FileNotFoundError:
+        raise TapoError("no credentials - run: tapo-power --setup")
+    if len(lines) < 2 or not lines[0]:
+        raise TapoError(f"{CRED_FILE} must hold the Tapo email, then the password")
+    return lines[0], lines[1]
+
+
+def setup():
+    email = input("Tapo account email: ").strip()
+    password = getpass.getpass("Tapo account password: ")
+    os.makedirs(os.path.dirname(CRED_FILE), mode=0o700, exist_ok=True)
+    fd = os.open(CRED_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(f"{email}\n{password}\n")
+    print(f"saved to {CRED_FILE}")
+
+
+def read_plug(host):
+    email, password = load_credentials()
+    auth_hash = sha256(sha1(email.encode()) + sha1(password.encode()))
+    path = cache_path(host)
+
+    session = None
+    try:
+        with open(path) as f:
+            c = json.load(f)
+        if time.time() - c["created"] < 6 * 3600:
+            session = Klap(host, auth_hash, bytes.fromhex(c["local_seed"]),
+                           bytes.fromhex(c["remote_seed"]), c["cookie"], c["seq"])
+    except (FileNotFoundError, ValueError, KeyError):
+        pass
+
+    for attempt in (1, 2):
+        if session is None:
+            session = Klap.handshake(host, auth_hash)
+        try:
+            energy = session.request("get_energy_usage")
+            info = session.request("get_device_info")
+            break
+        except (SessionExpired, ValueError):
+            # ValueError covers a reply we cannot decrypt: stale seeds after the
+            # plug rebooted.  Drop the cached session and log in again once.
+            session = None
+            if attempt == 2:
+                raise TapoError("plug kept rejecting a fresh session")
+
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(session.to_cache(), f)
+
+    try:
+        name = base64.b64decode(info.get("nickname", "")).decode()
+    except ValueError:
+        name = ""
+    return {
+        "ok": True,
+        "host": host,
+        "model": info.get("model", ""),
+        "name": name,
+        "on": bool(info.get("device_on", True)),
+        "watts": round(energy.get("current_power", 0) / 1000.0, 1),  # reported in mW
+        "today_wh": energy.get("today_energy"),
+        "month_wh": energy.get("month_energy"),
+        "time": int(time.time()),
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("host", nargs="?", default="192.168.1.81")
+    ap.add_argument("--setup", action="store_true", help="store Tapo credentials")
+    args = ap.parse_args()
+    if args.setup:
+        setup()
+        return 0
+    try:
+        out = read_plug(args.host)
+    except TapoError as e:
+        out = {"ok": False, "host": args.host, "error": str(e)}
+    except (OSError, ValueError) as e:
+        out = {"ok": False, "host": args.host, "error": f"{type(e).__name__}: {e}"}
+    print(json.dumps(out))
+    return 0 if out["ok"] else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

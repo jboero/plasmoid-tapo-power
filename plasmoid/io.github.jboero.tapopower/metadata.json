@@ -1,0 +1,23 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "boeroboy@gmail.com",
+                "Name": "John Boero"
+            }
+        ],
+        "Category": "System Information",
+        "Description": "Live wall power from a Tapo energy-monitoring plug, read locally",
+        "EnabledByDefault": false,
+        "Icon": "utilities-energy-monitor",
+        "Id": "io.github.jboero.tapopower",
+        "License": "GPL-2.0-or-later",
+        "Name": "Tapo Power",
+        "Version": "0.1.0"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-MainScript": "ui/main.qml",
+    "X-Plasma-NotificationArea": "true",
+    "X-Plasma-NotificationAreaCategory": "Hardware"
+}
