@@ -8,6 +8,8 @@ energy-monitoring plug (P110/P115), read directly over the local network.
 - Today and month energy totals from the plug
 - No cloud round trip: the helper talks the plug's local KLAP protocol
 
+![Tapo Power showing a live power graph, with low, average and peak watts and today and month energy totals](screenshot.webp)
+
 > Vibe coded with [Claude](https://claude.com/claude-code) (Claude Haiku 5.5).
 
 ## Requirements
@@ -33,9 +35,12 @@ and the applet in `~/.local/share/plasma/plasmoids`.
 
 ## Devices
 
-Each widget instance reads one plug, set by its **Plug address** option.
-Other plugs need their own widget instance with a different address. The
-helper caches a session per address, so several plugs do not interfere.
+Set **Plug addresses** in the widget settings, one per line. The widget shows
+a card per plug in a scrolling list, with each plug's watts, a sparkline, and
+today and month energy. The header totals every plug that is reporting.
+
+The helper caches a session per address, so several plugs do not interfere.
+The panel shows the total across all plugs.
 
 The helper logs in with your Tapo account, so it can only read plugs that are
 registered to that same account. Plugs on another account will fail with

@@ -15,8 +15,8 @@ MouseArea {
     // The system tray is the containment that draws its own plasmoid headings.
     readonly property bool inTray: (Plasmoid.containmentDisplayHints
                                     & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0
-    readonly property bool faulted: root.lastError !== "" && root.reading === null
-    readonly property bool dim: root.stale || root.lastError !== ""
+    readonly property bool faulted: root.faulted
+    readonly property bool dim: root.dim
     readonly property bool horizontal: Plasmoid.formFactor !== PlasmaCore.Types.Vertical
 
     Layout.minimumWidth: inTray ? Kirigami.Units.iconSizes.small : row.implicitWidth
@@ -36,7 +36,7 @@ MouseArea {
         opacity: compact.dim && !compact.faulted ? 0.6 : 1.0
     }
     Rectangle {
-        visible: compact.inTray && root.reading !== null
+        visible: compact.inTray && root.okCount > 0
                  && compact.height >= Kirigami.Units.iconSizes.small
         anchors.right: parent.right
         anchors.bottom: parent.bottom
@@ -79,10 +79,10 @@ MouseArea {
             Layout.topMargin: 2
             Layout.bottomMargin: 2
             showAxes: false
-            samples: root.samples
+            samples: root.totalHistory.samples
             capacity: root.historyCapacity
-            yFrom: root.graphFrom
-            yTo: root.graphTo
+            yFrom: 0
+            yTo: root.totalHistory.yTo
         }
         PlasmaComponents.Label {
             text: root.panelText

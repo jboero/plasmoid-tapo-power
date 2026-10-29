@@ -5,19 +5,23 @@ import org.kde.kirigami as Kirigami
 import org.kde.kcmutils as KCM
 
 KCM.SimpleKCM {
-    property alias cfg_host: hostField.text
+    property alias cfg_hosts: hostsField.text
     property alias cfg_intervalSeconds: intervalSpin.value
     property alias cfg_historyMinutes: historySpin.value
     // Plasma 6's config dialog also sets cfg_<key>Default; declare them or it
     // logs "does not have a property called ..." for every key.
-    property var cfg_hostDefault
+    property var cfg_hostsDefault
     property var cfg_intervalSecondsDefault
     property var cfg_historyMinutesDefault
 
     Kirigami.FormLayout {
-        QQC2.TextField {
-            id: hostField
-            Kirigami.FormData.label: i18n("Plug address:")
+        QQC2.TextArea {
+            id: hostsField
+            Kirigami.FormData.label: i18n("Plug addresses:")
+            placeholderText: i18n("One address per line")
+            implicitWidth: Kirigami.Units.gridUnit * 14
+            implicitHeight: Kirigami.Units.gridUnit * 5
+            wrapMode: TextEdit.NoWrap
         }
         QQC2.SpinBox {
             id: intervalSpin
