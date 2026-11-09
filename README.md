@@ -8,7 +8,7 @@ energy-monitoring plug (P110/P115), read directly over the local network.
 - Today and month energy totals from the plug, with estimated cost
 - No cloud round trip: the helper talks the plug's local KLAP protocol
 
-![Tapo Power showing a live power graph, with low, average and peak watts and today and month energy totals](screenshot.webp)
+![Tapo Power showing a live power graph, with low, average and peak watts and today and month energy totals with estimated cost](screenshot.webp)
 
 > Vibe coded with [Claude](https://claude.com/claude-code) (Claude Haiku 5.5).
 
