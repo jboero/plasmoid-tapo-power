@@ -14,6 +14,8 @@ Rectangle {
     property string host: ""
     property int intervalSec: 5
     property int historyCapacity: 360
+    property real costPerKWh: 0     // 0 hides cost estimates
+    property string currency: "$"
 
     // watts is NaN and error is set when the poll failed.
     signal reported(real watts, var todayWh, var monthWh, string error)
@@ -36,6 +38,11 @@ Rectangle {
 
     function fmtW(w) { return isNaN(w) ? "—" : (w >= 100 ? Math.round(w) : w.toFixed(1)) + " W" }
     function fmtKWh(wh) { return (wh === undefined || wh === null) ? "—" : (wh / 1000).toFixed(2) + " kWh" }
+    function fmtEnergy(wh) {
+        if (wh === undefined || wh === null || costPerKWh <= 0)
+            return fmtKWh(wh)
+        return i18n("%1 ≈ %2", fmtKWh(wh), currency + (wh / 1000 * costPerKWh).toFixed(2))
+    }
 
     function fail(msg) {
         card.lastError = msg
@@ -139,13 +146,13 @@ Rectangle {
         RowLayout {
             Layout.fillWidth: true
             PlasmaComponents.Label {
-                text: i18n("Today: %1", card.fmtKWh(card.reading ? card.reading.today_wh : undefined))
+                text: i18n("Today: %1", card.fmtEnergy(card.reading ? card.reading.today_wh : undefined))
                 font: Kirigami.Theme.smallFont
                 opacity: 0.7
             }
             Item { Layout.fillWidth: true }
             PlasmaComponents.Label {
-                text: i18n("Month: %1", card.fmtKWh(card.reading ? card.reading.month_wh : undefined))
+                text: i18n("Month: %1", card.fmtEnergy(card.reading ? card.reading.month_wh : undefined))
                 font: Kirigami.Theme.smallFont
                 opacity: 0.7
             }

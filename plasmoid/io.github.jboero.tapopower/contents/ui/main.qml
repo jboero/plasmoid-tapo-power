@@ -23,6 +23,9 @@ PlasmoidItem {
     readonly property int intervalSec: Math.max(2, cfgNum("intervalSeconds", 5))
     readonly property int historyMinutes: Math.max(1, cfgNum("historyMinutes", 30))
     readonly property int historyCapacity: Math.max(2, Math.round(historyMinutes * 60 / intervalSec))
+    // Price per kWh for cost estimates; 0 hides them.
+    readonly property real costPerKWh: Math.max(0, parseFloat(cfgStr("costPerKWh", "0.19342")) || 0)
+    readonly property string currency: cfgStr("currency", "$")
 
     // Plug addresses, one per line or separated by commas. Anything that is not
     // a plain address is dropped, because each host goes into a shell command line.
@@ -50,6 +53,7 @@ PlasmoidItem {
     readonly property int deviceCount: hosts.length
     readonly property real totalW: okCount ? live.reduce((a, r) => a + r.watts, 0) : NaN
     readonly property real totalTodayWh: live.reduce((a, r) => a + (r.todayWh || 0), 0)
+    readonly property real totalMonthWh: live.reduce((a, r) => a + (r.monthWh || 0), 0)
     readonly property string firstError: {
         var failing = hosts.map(h => readings[h]).filter(r => r !== undefined && r.error)
         return failing.length ? failing[0].error : ""
@@ -74,6 +78,12 @@ PlasmoidItem {
     function fmtWindow(min) { return min >= 60 && min % 60 === 0 ? i18n("%1 h", min / 60) : i18n("%1 min", min) }
     function fmtW(w) { return isNaN(w) ? "—" : (w >= 100 ? Math.round(w) : w.toFixed(1)) + " W" }
     function fmtKWh(wh) { return (wh === undefined || wh === null) ? "—" : (wh / 1000).toFixed(2) + " kWh" }
+    // Energy with its estimated cost appended, when a rate is set.
+    function fmtEnergy(wh) {
+        if (wh === undefined || wh === null || costPerKWh <= 0)
+            return fmtKWh(wh)
+        return i18n("%1 ≈ %2", fmtKWh(wh), currency + (wh / 1000 * costPerKWh).toFixed(2))
+    }
 
     readonly property string panelText: fmtW(totalW)
     // Tray badge: whole watts with a unit glued on, so it is never a bare number.
@@ -90,7 +100,7 @@ PlasmoidItem {
             return i18n("No plugs configured")
         var lines = []
         if (okCount)
-            lines.push(i18n("Used today: %1", fmtKWh(totalTodayWh)))
+            lines.push(i18n("Used today: %1", fmtEnergy(totalTodayWh)))
         if (okCount < deviceCount)
             lines.push(i18n("%1 of %2 plugs reporting", okCount, deviceCount))
         if (firstError)
@@ -152,12 +162,15 @@ PlasmoidItem {
                            Qt.formatTime(new Date(totalSeries.peakAtMs), "hh:mm:ss"))
                 opacity: 0.8
             }
+        }
+
+        // Energy so far today and this month, as the plugs count it, with cost.
+        RowLayout {
+            Layout.fillWidth: true
+            visible: root.okCount > 0
+            PlasmaComponents.Label { text: i18n("Today: %1", root.fmtEnergy(root.totalTodayWh)); opacity: 0.8 }
             Item { Layout.fillWidth: true }
-            PlasmaComponents.Label {
-                visible: root.okCount > 0
-                text: i18n("Today: %1", root.fmtKWh(root.totalTodayWh))
-                opacity: 0.8
-            }
+            PlasmaComponents.Label { text: i18n("Month: %1", root.fmtEnergy(root.totalMonthWh)); opacity: 0.8 }
         }
 
         // ---- the plugs, one card each, scrolling when they do not all fit
@@ -181,6 +194,8 @@ PlasmoidItem {
                         host: modelData
                         intervalSec: root.intervalSec
                         historyCapacity: root.historyCapacity
+                        costPerKWh: root.costPerKWh
+                        currency: root.currency
                         onReported: (watts, todayWh, monthWh, error) =>
                             root.setReading(modelData, watts, todayWh, monthWh, error)
                     }

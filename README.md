@@ -5,7 +5,7 @@ energy-monitoring plug (P110/P115), read directly over the local network.
 
 - Live watts in the panel, with a tooltip showing today's usage
 - Full view with a rolling graph, plus low / average / peak for the window
-- Today and month energy totals from the plug
+- Today and month energy totals from the plug, with estimated cost
 - No cloud round trip: the helper talks the plug's local KLAP protocol
 
 ![Tapo Power showing a live power graph, with low, average and peak watts and today and month energy totals](screenshot.webp)
@@ -46,6 +46,17 @@ The helper logs in with your Tapo account, so it can only read plugs that are
 registered to that same account. Plugs on another account will fail with
 "wrong Tapo email or password". Each plug must also be reachable at its LAN
 address from this machine.
+
+## Cost estimates
+
+Set **Electricity rate (per kWh)** and **Currency symbol** in the widget
+settings, and the today and month totals show an estimated cost next to the
+energy, such as `4.34 kWh ≈ $0.84`. Set the rate to 0 to hide costs.
+
+The estimate is energy times the rate. Fixed customer charges and taxes are
+not included. The month total is the plug's calendar month, which may not match
+your billing period. For a good rate, divide your bill's energy charges by its
+kWh.
 
 ## Credentials
 

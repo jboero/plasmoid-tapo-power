@@ -13,5 +13,12 @@
     <entry name="historyMinutes" type="Int">
       <default>30</default>
     </entry>
+    <!-- Kept as text so the settings field can hold half-typed values like "0." -->
+    <entry name="costPerKWh" type="String">
+      <default>0.19342</default>
+    </entry>
+    <entry name="currency" type="String">
+      <default>$</default>
+    </entry>
   </group>
 </kcfg>
