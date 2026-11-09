@@ -24,6 +24,27 @@ Item {
     property string windowLabel: ""   // e.g. "30 min"
     property color lineColor: Kirigami.Theme.highlightColor
 
+    // Y labels at round values, only as many as fit with a line's gap between
+    // them, so a short graph gets fewer labels instead of overlapping ones.
+    readonly property var yTicks: {
+        var span = yTo - yFrom
+        if (!(span > 0) || chart.height <= 0)
+            return []
+        var room = Math.max(1, Math.floor(chart.height / (tickMetrics.height * 2)))
+        var step = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000, 10000]
+                       .find(s => span / s <= room) || span
+        var ticks = []
+        for (var v = yFrom; v <= yTo + 1e-6; v += step)
+            ticks.push(v)
+        return ticks
+    }
+
+    TextMetrics {
+        id: tickMetrics
+        font: Kirigami.Theme.smallFont
+        text: Math.round(graph.yTo) + " W"
+    }
+
     readonly property color gridColor: Qt.rgba(Kirigami.Theme.textColor.r,
                                                Kirigami.Theme.textColor.g,
                                                Kirigami.Theme.textColor.b, 0.15)
@@ -38,24 +59,27 @@ Item {
         minor.visible: false
     }
 
-    ChartsControls.AxisLabels {
+    // Placed by hand: AxisLabels stacked every label at the top of a short graph.
+    Item {
         id: yLabels
         visible: graph.showAxes
+        width: visible ? Math.ceil(tickMetrics.advanceWidth) : 0
         anchors {
             left: parent.left
-            top: parent.top
-            bottom: xLabels.top
+            top: chart.top
+            bottom: chart.bottom
         }
-        direction: ChartsControls.AxisLabels.VerticalBottomTop
-        delegate: PlasmaComponents.Label {
-            text: Math.round(ChartsControls.AxisLabels.label) + " W"
-            font: Kirigami.Theme.smallFont
-            opacity: 0.7
-        }
-        source: Charts.ChartAxisSource {
-            chart: chart
-            axis: Charts.ChartAxisSource.YAxis
-            itemCount: 5
+        Repeater {
+            model: graph.showAxes ? graph.yTicks : []
+            PlasmaComponents.Label {
+                // Centred on its value, but kept inside the chart's height.
+                y: Math.max(0, Math.min(yLabels.height - height,
+                       yLabels.height * (1 - (modelData - graph.yFrom) / (graph.yTo - graph.yFrom)) - height / 2))
+                anchors.right: parent.right
+                text: Math.round(modelData) + " W"
+                font: Kirigami.Theme.smallFont
+                opacity: 0.7
+            }
         }
     }
 

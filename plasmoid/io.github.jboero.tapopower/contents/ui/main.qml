@@ -38,7 +38,37 @@ PlasmoidItem {
         return seen
     }
 
-    // Latest result per host, written by each device card's poll:
+    // One poller per plug, found by host. They sit here, not in the popup, so
+    // polling runs whether or not the popup has been opened.
+    property var pollers: ({})
+    Instantiator {
+        model: root.hosts
+        delegate: PlugPoller {
+            host: modelData
+            intervalSec: root.intervalSec
+            historyCapacity: root.historyCapacity
+            onReported: (watts, todayWh, monthWh, error) =>
+                root.setReading(modelData, watts, todayWh, monthWh, error)
+        }
+        onObjectAdded: (index, object) => {
+            var m = Object.assign({}, root.pollers)
+            m[object.host] = object
+            root.pollers = m
+        }
+        onObjectRemoved: (index, object) => {
+            if (root.pollers[object.host] !== object)
+                return
+            var m = Object.assign({}, root.pollers)
+            delete m[object.host]
+            root.pollers = m
+        }
+    }
+
+    // With one plug the popup is that plug's own view, with no card list.
+    readonly property bool single: hosts.length === 1
+    readonly property var solo: single ? (pollers[hosts[0]] || null) : null
+
+    // Latest result per host, written by each plug's poller:
     // {watts, todayWh, monthWh, error}. Watts is NaN while that plug is failing.
     property var readings: ({})
     function setReading(host, watts, todayWh, monthWh, error) {
@@ -94,7 +124,9 @@ PlasmoidItem {
 
     Plasmoid.icon: iconName
     Plasmoid.status: PlasmaCore.Types.PassiveStatus
-    toolTipMainText: okCount ? i18n("Total: %1", fmtW(totalW)) : i18n("Tapo Power")
+    toolTipMainText: !okCount ? i18n("Tapo Power")
+                   : solo ? i18n("%1: %2", solo.title, fmtW(totalW))
+                   : i18n("Total: %1", fmtW(totalW))
     toolTipSubText: {
         if (deviceCount === 0)
             return i18n("No plugs configured")
@@ -114,14 +146,14 @@ PlasmoidItem {
         Layout.minimumWidth: Kirigami.Units.gridUnit * 22
         Layout.minimumHeight: Kirigami.Units.gridUnit * 16
         Layout.preferredWidth: Kirigami.Units.gridUnit * 28
-        Layout.preferredHeight: Kirigami.Units.gridUnit * 24
+        Layout.preferredHeight: Kirigami.Units.gridUnit * (root.single ? 20 : 24)
         spacing: Kirigami.Units.smallSpacing
 
-        // ---- header: the total over every plug
+        // ---- header: the plug's name with one plug, else the total over all
         RowLayout {
             Layout.fillWidth: true
             PlasmaComponents.Label {
-                text: i18n("All plugs")
+                text: root.solo ? root.solo.title : i18n("All plugs")
                 opacity: 0.7
             }
             Item { Layout.fillWidth: true }
@@ -135,6 +167,9 @@ PlasmoidItem {
 
         PowerGraph {
             Layout.fillWidth: true
+            // One plug: the graph takes the space the card list would have.
+            Layout.fillHeight: root.single
+            Layout.minimumHeight: Kirigami.Units.gridUnit * 5
             Layout.preferredHeight: Kirigami.Units.gridUnit * 5
             samples: totalSeries.samples
             capacity: root.historyCapacity
@@ -173,9 +208,27 @@ PlasmoidItem {
             PlasmaComponents.Label { text: i18n("Month: %1", root.fmtEnergy(root.totalMonthWh)); opacity: 0.8 }
         }
 
-        // ---- the plugs, one card each, scrolling when they do not all fit
+        // ---- one plug: its model and address, and any error
+        PlasmaComponents.Label {
+            Layout.fillWidth: true
+            visible: root.solo !== null
+            text: root.solo ? root.solo.subtitle : ""
+            font: Kirigami.Theme.smallFont
+            opacity: 0.6
+            elide: Text.ElideRight
+        }
+        PlasmaComponents.Label {
+            Layout.fillWidth: true
+            visible: root.solo !== null && root.solo.lastError !== ""
+            text: root.solo ? root.solo.lastError : ""
+            wrapMode: Text.WordWrap
+            color: Kirigami.Theme.negativeTextColor
+        }
+
+        // ---- several plugs: one card each, scrolling when they do not all fit
         QQC2.ScrollView {
             id: scroll
+            visible: root.deviceCount > 1
             Layout.fillWidth: true
             Layout.fillHeight: true
             contentWidth: availableWidth
@@ -191,13 +244,9 @@ PlasmoidItem {
 
                     delegate: DeviceCard {
                         Layout.fillWidth: true
-                        host: modelData
-                        intervalSec: root.intervalSec
-                        historyCapacity: root.historyCapacity
+                        poller: root.pollers[modelData] || null
                         costPerKWh: root.costPerKWh
                         currency: root.currency
-                        onReported: (watts, todayWh, monthWh, error) =>
-                            root.setReading(modelData, watts, todayWh, monthWh, error)
                     }
                 }
             }
